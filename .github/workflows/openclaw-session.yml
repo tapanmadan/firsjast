@@ -29,7 +29,7 @@ concurrency:
 
 jobs:
   openclaw-session:
-    
+    runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -97,11 +97,11 @@ jobs:
         with:
           path: |
             ~/.cloakbrowser
-            ~/.cloakbrowser-node
+            ~/.cache/cloakbrowser-node
             ~/.npm
-          key: cloakbrowser-v2-${{ runner.os }}
+          key: cloakbrowser-v4-${{ runner.os }}
           restore-keys: |
-            cloakbrowser-v2-${{ runner.os }}
+            cloakbrowser-v4-${{ runner.os }}
 
 
       # ========== OPENCLAW SETUP ==========
@@ -131,47 +131,45 @@ jobs:
       - name: Install CloakBrowser for browser control
         run: |
           export CLOAKBROWSER_CACHE_DIR="$HOME/.cloakbrowser"
-          export CLOAKBROWSER_NODE_DIR="$HOME/.cloakbrowser-node"
+          export CLOAKBROWSER_NODE_DIR="$HOME/.cache/cloakbrowser-node"
       
           mkdir -p "$CLOAKBROWSER_CACHE_DIR"
           mkdir -p "$CLOAKBROWSER_NODE_DIR"
       
           cd "$CLOAKBROWSER_NODE_DIR"
       
+          # Create a valid local npm project
           if [ ! -f package.json ]; then
-            npm init -y
+            cat > package.json <<'JSON'
+          {
+            "name": "cloakbrowser-ci-cache",
+            "version": "1.0.0",
+            "private": true,
+            "type": "module"
+          }
+          JSON
           fi
       
-          # Install CloakBrowser package if not already cached
+          # Install CloakBrowser according to official docs
           if [ ! -f "$CLOAKBROWSER_NODE_DIR/node_modules/cloakbrowser/package.json" ]; then
             echo "Installing CloakBrowser npm package..."
             npm install cloakbrowser playwright-core
           else
-            echo "CloakBrowser npm package already present (cached)"
+            echo "CloakBrowser npm package already present cached"
           fi
       
-          # Validate cached CloakBrowser browser exists or trigger download
-          if [ "${{ steps.cache-cloakbrowser.outputs.cache-hit }}" = "true" ]; then
-            if [ -d "$CLOAKBROWSER_CACHE_DIR" ] && [ "$(ls -A "$CLOAKBROWSER_CACHE_DIR" 2>/dev/null)" ]; then
-              echo "CloakBrowser browser cache restored"
-            else
-              echo "WARNING: Cache hit but CloakBrowser browser cache is empty, downloading..."
-            fi
-          else
-            echo "No CloakBrowser cache found, downloading on first launch..."
-          fi
+          # CloakBrowser does not need playwright install chromium.
+          # It only needs Playwright system dependencies.
+          npx playwright install-deps chromium 2>/dev/null || true
       
-          # Trigger first launch so CloakBrowser downloads/verifies its Chromium binary
+          # Pre-download / verify CloakBrowser binary using official JS utility
           node --input-type=module - <<'NODE'
-          import { launch } from 'cloakbrowser';
+          import { ensureBinary, binaryInfo } from 'cloakbrowser';
       
           try {
-            const browser = await launch({
-              headless: true
-            });
-      
-            await browser.close();
-            console.log('CloakBrowser + Chromium ready');
+            await ensureBinary();
+            console.log('CloakBrowser binary ready');
+            console.log(binaryInfo());
           } catch (err) {
             console.error(err);
             process.exit(1);
@@ -898,7 +896,7 @@ jobs:
         with:
           path: |
             ~/.cloakbrowser
-            ~/.cloakbrowser-node
+            ~/.cache/cloakbrowser-node
             ~/.npm
-          key: cloakbrowser-v2-${{ runner.os }}
+          key: cloakbrowser-v4-${{ runner.os }}
         continue-on-error: true
