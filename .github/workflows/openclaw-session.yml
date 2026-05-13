@@ -29,7 +29,7 @@ concurrency:
 
 jobs:
   openclaw-session:
-    
+    runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -97,10 +97,11 @@ jobs:
         with:
           path: |
             ~/.cloakbrowser
-            ~/.npm-global
-          key: cloakbrowser-v1-${{ runner.os }}
+            ~/.cloakbrowser-node
+            ~/.npm
+          key: cloakbrowser-v2-${{ runner.os }}
           restore-keys: |
-            cloakbrowser-v1-${{ runner.os }}
+            cloakbrowser-v2-${{ runner.os }}
 
 
       # ========== OPENCLAW SETUP ==========
@@ -129,18 +130,22 @@ jobs:
 
       - name: Install CloakBrowser for browser control
         run: |
-          export NPM_CONFIG_PREFIX="$HOME/.npm-global"
-          export PATH="$HOME/.npm-global/bin:$PATH"
-          export NODE_PATH="$HOME/.npm-global/lib/node_modules"
           export CLOAKBROWSER_CACHE_DIR="$HOME/.cloakbrowser"
+          export CLOAKBROWSER_NODE_DIR="$HOME/.cloakbrowser-node"
       
-          mkdir -p "$HOME/.npm-global"
           mkdir -p "$CLOAKBROWSER_CACHE_DIR"
+          mkdir -p "$CLOAKBROWSER_NODE_DIR"
       
-          # Install CloakBrowser npm package if not already cached
-          if [ ! -f "$HOME/.npm-global/lib/node_modules/cloakbrowser/package.json" ]; then
+          cd "$CLOAKBROWSER_NODE_DIR"
+      
+          if [ ! -f package.json ]; then
+            npm init -y
+          fi
+      
+          # Install CloakBrowser package if not already cached
+          if [ ! -f "$CLOAKBROWSER_NODE_DIR/node_modules/cloakbrowser/package.json" ]; then
             echo "Installing CloakBrowser npm package..."
-            npm install -g cloakbrowser playwright-core
+            npm install cloakbrowser playwright-core
           else
             echo "CloakBrowser npm package already present (cached)"
           fi
@@ -148,29 +153,29 @@ jobs:
           # Validate cached CloakBrowser browser exists or trigger download
           if [ "${{ steps.cache-cloakbrowser.outputs.cache-hit }}" = "true" ]; then
             if [ -d "$CLOAKBROWSER_CACHE_DIR" ] && [ "$(ls -A "$CLOAKBROWSER_CACHE_DIR" 2>/dev/null)" ]; then
-              echo "CloakBrowser restored from cache"
+              echo "CloakBrowser browser cache restored"
             else
-              echo "WARNING: Cache hit but CloakBrowser cache is empty, downloading..."
+              echo "WARNING: Cache hit but CloakBrowser browser cache is empty, downloading..."
             fi
           else
             echo "No CloakBrowser cache found, downloading on first launch..."
           fi
       
           # Trigger first launch so CloakBrowser downloads/verifies its Chromium binary
-          node - <<'NODE'
-          const { launch } = require('cloakbrowser');
+          node --input-type=module - <<'NODE'
+          import { launch } from 'cloakbrowser';
       
-          (async () => {
+          try {
             const browser = await launch({
               headless: true
             });
       
             await browser.close();
             console.log('CloakBrowser + Chromium ready');
-          })().catch(err => {
+          } catch (err) {
             console.error(err);
             process.exit(1);
-          });
+          }
           NODE
       
           echo "CloakBrowser ready at: $CLOAKBROWSER_CACHE_DIR"
@@ -893,6 +898,7 @@ jobs:
         with:
           path: |
             ~/.cloakbrowser
-            ~/.npm-global
-          key: cloakbrowser-v1-${{ runner.os }}
+            ~/.cloakbrowser-node
+            ~/.npm
+          key: cloakbrowser-v2-${{ runner.os }}
         continue-on-error: true
