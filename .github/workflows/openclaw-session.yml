@@ -29,7 +29,7 @@ concurrency:
 
 jobs:
   openclaw-session:
-    runs-on: ubuntu-latest
+    
     timeout-minutes: 360
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -90,12 +90,18 @@ jobs:
           path: ~/.npm-global
           key: npm-global-openclaw-${{ steps.session.outputs.OPENCLAW_CACHE_VERSION }}-${{ runner.os }}
 
-      - name: Restore Playwright browsers cache
-        id: cache-playwright
+      
+      - name: Restore CloakBrowser cache
+        id: cache-cloakbrowser
         uses: actions/cache/restore@v5
         with:
-          path: ~/.playwright-browsers
-          key: playwright-browsers-v1-${{ runner.os }}
+          path: |
+            ~/.cloakbrowser
+            ~/.npm-global
+          key: cloakbrowser-v1-${{ runner.os }}
+          restore-keys: |
+            cloakbrowser-v1-${{ runner.os }}
+
 
       # ========== OPENCLAW SETUP ==========
       - name: Install OpenClaw
@@ -121,37 +127,53 @@ jobs:
             npm install -g openclaw@latest
           fi
 
-      - name: Install Playwright and Chromium for browser control
+      - name: Install CloakBrowser for browser control
         run: |
           export NPM_CONFIG_PREFIX="$HOME/.npm-global"
           export PATH="$HOME/.npm-global/bin:$PATH"
-          export PLAYWRIGHT_BROWSERS_PATH="$HOME/.playwright-browsers"
-
-          # Install Playwright npm package if not already cached
-          if [ ! -f "$HOME/.npm-global/lib/node_modules/playwright/cli.js" ]; then
-            echo "Installing Playwright npm package..."
-            npm install -g playwright
+          export NODE_PATH="$HOME/.npm-global/lib/node_modules"
+          export CLOAKBROWSER_CACHE_DIR="$HOME/.cloakbrowser"
+      
+          mkdir -p "$HOME/.npm-global"
+          mkdir -p "$CLOAKBROWSER_CACHE_DIR"
+      
+          # Install CloakBrowser npm package if not already cached
+          if [ ! -f "$HOME/.npm-global/lib/node_modules/cloakbrowser/package.json" ]; then
+            echo "Installing CloakBrowser npm package..."
+            npm install -g cloakbrowser playwright-core
           else
-            echo "Playwright npm package already present (cached)"
+            echo "CloakBrowser npm package already present (cached)"
           fi
-
-          # Install Chromium browser binary if not cached
-          if [ "${{ steps.cache-playwright.outputs.cache-hit }}" = "true" ]; then
-            # Validate cached browser exists
-            if ls "$PLAYWRIGHT_BROWSERS_PATH"/chromium-* 1>/dev/null 2>&1; then
-              echo "Playwright Chromium restored from cache"
-              # Still install system deps (not cached - they're OS packages)
-              npx playwright install-deps chromium 2>/dev/null || true
+      
+          # Validate cached CloakBrowser browser exists or trigger download
+          if [ "${{ steps.cache-cloakbrowser.outputs.cache-hit }}" = "true" ]; then
+            if [ -d "$CLOAKBROWSER_CACHE_DIR" ] && [ "$(ls -A "$CLOAKBROWSER_CACHE_DIR" 2>/dev/null)" ]; then
+              echo "CloakBrowser restored from cache"
             else
-              echo "WARNING: Cache hit but no chromium directory found, reinstalling..."
-              npx playwright install --with-deps chromium
+              echo "WARNING: Cache hit but CloakBrowser cache is empty, downloading..."
             fi
           else
-            echo "Installing Playwright Chromium browser..."
-            npx playwright install --with-deps chromium
+            echo "No CloakBrowser cache found, downloading on first launch..."
           fi
-
-          echo "Playwright + Chromium ready at: $PLAYWRIGHT_BROWSERS_PATH"
+      
+          # Trigger first launch so CloakBrowser downloads/verifies its Chromium binary
+          node - <<'NODE'
+          const { launch } = require('cloakbrowser');
+      
+          (async () => {
+            const browser = await launch({
+              headless: true
+            });
+      
+            await browser.close();
+            console.log('CloakBrowser + Chromium ready');
+          })().catch(err => {
+            console.error(err);
+            process.exit(1);
+          });
+          NODE
+      
+          echo "CloakBrowser ready at: $CLOAKBROWSER_CACHE_DIR"
 
       # ========== CONFIGURE ==========
       - name: Configure OpenClaw
@@ -865,10 +887,12 @@ jobs:
           key: npm-global-openclaw-${{ steps.session.outputs.OPENCLAW_CACHE_VERSION }}-${{ runner.os }}
         continue-on-error: true
 
-      - name: Save Playwright browsers cache
-        if: ${{ always() && steps.cache-playwright.outputs.cache-hit != 'true' }}
+      - name: Save CloakBrowser cache
+        if: ${{ always() && steps.cache-cloakbrowser.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v5
         with:
-          path: ~/.playwright-browsers
-          key: playwright-browsers-v1-${{ runner.os }}
+          path: |
+            ~/.cloakbrowser
+            ~/.npm-global
+          key: cloakbrowser-v1-${{ runner.os }}
         continue-on-error: true
